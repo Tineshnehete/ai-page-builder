@@ -54,6 +54,13 @@ export class UserDO {
       }
     }
 
+    // Handle GET /internal/projects/:id
+    const projectIdMatch = url.pathname.match(/^\/internal\/projects\/(.+)$/);
+    if (projectIdMatch && request.method === "GET") {
+      const projectId = projectIdMatch[1];
+      return this.handleGetProject(projectId);
+    }
+
     return new Response("Not found", { status: 404 });
   }
 
@@ -136,5 +143,19 @@ export class UserDO {
     await this.state.storage.put("user", record);
 
     return Response.json({ project }, { status: 201 });
+  }
+
+  private async handleGetProject(projectId: string): Promise<Response> {
+    const record = await this.state.storage.get<UserRecord>("user");
+    if (!record) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const project = record.projects.find((p) => p.id === projectId);
+    if (!project) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    return Response.json({ project });
   }
 }

@@ -53,6 +53,17 @@ export default {
       return handleCreateProject(request, session, env);
     }
 
+    // Handle GET /api/projects/:id
+    const projectIdMatch = url.pathname.match(/^\/api\/projects\/(.+)$/);
+    if (projectIdMatch && request.method === "GET") {
+      const session = await requireSession(request, env);
+      if (session instanceof Response) {
+        return session;
+      }
+      const projectId = projectIdMatch[1];
+      return handleGetProject(projectId, session, env);
+    }
+
     // Chat/generate, publish, and delete routes are left to the builder
     // (see design doc "What's Left to the Builder").
     return new Response("Not found", { status: 404 });
@@ -124,6 +135,18 @@ async function handleCreateProject(
     method: "POST",
     body: JSON.stringify({ name }),
   });
+  const body = await res.json();
+  return Response.json(body, { status: res.status });
+}
+
+async function handleGetProject(
+  projectId: string,
+  session: { username: string },
+  env: Env
+): Promise<Response> {
+  const id = env.USER_DO.idFromName(session.username);
+  const stub = env.USER_DO.get(id);
+  const res = await stub.fetch(`https://do/internal/projects/${projectId}`);
   const body = await res.json();
   return Response.json(body, { status: res.status });
 }
