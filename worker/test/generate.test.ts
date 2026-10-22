@@ -1,5 +1,40 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildPrompt, extractHtml, streamGeneration } from "../src/generate";
+import {
+  buildPrompt,
+  extractHtml,
+  streamGeneration,
+  MODEL_ID,
+  MAX_OUTPUT_TOKENS,
+} from "../src/generate";
+
+/**
+ * Builds what the real Workers AI binding resolves to for `stream: true`: a
+ * ReadableStream of SSE-framed bytes. Each entry in `rawChunks` is emitted as
+ * one byte chunk, so tests can split frames across chunk boundaries.
+ */
+function sseStream(rawChunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of rawChunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  });
+}
+
+function frame(response: string): string {
+  return `data: ${JSON.stringify({ response })}\n\n`;
+}
+
+async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let out = "";
+  for (let r = await reader.read(); !r.done; r = await reader.read()) {
+    out += decoder.decode(r.value, { stream: true });
+  }
+  return out;
+}
 
 describe("AI generation module", () => {
   describe("buildPrompt", () => {
@@ -33,55 +68,131 @@ describe("AI generation module", () => {
     it("trims surrounding whitespace when no fence is present", () => {
       expect(extractHtml("  <html></html>  \n")).toBe("<html></html>");
     });
+
+    it("extracts a fenced block surrounded by explanatory prose", () => {
+      const output =
+        "Sure! Here's your updated page:\n\n```html\n<!DOCTYPE html>\n<html><body>new</body></html>\n```\n\nI made the background blue.";
+      expect(extractHtml(output)).toBe("<!DOCTYPE html>\n<html><body>new</body></html>");
+    });
+
+    it("extracts an unterminated fence (output cut off) through the end", () => {
+      expect(extractHtml("Here:\n```html\n<html><body>partial")).toBe("<html><body>partial");
+    });
+
+    it("extracts raw unfenced <html>...</html> (no doctype) from surrounding prose", () => {
+      const output = "Here is the page: <html><body>x</body></html> Hope that helps!";
+      expect(extractHtml(output)).toBe("<html><body>x</body></html>");
+    });
+
+    it("extracts from <!doctype through the last </html>, case-insensitively", () => {
+      const output = "Updated:\n<!doctype html><HTML><body>y</body></HTML>\nDone.";
+      expect(extractHtml(output)).toBe("<!doctype html><HTML><body>y</body></HTML>");
+    });
+
+    it("returns null when no HTML is found at all", () => {
+      expect(extractHtml("I'm sorry, I can't help with that request.")).toBeNull();
+      expect(extractHtml("")).toBeNull();
+    });
   });
 
   describe("streamGeneration", () => {
-    it("forwards chunks from ai.run and resolves done with the full text", async () => {
+    it("parses SSE frames, forwards response text, and resolves done with the full text", async () => {
       const fakeAi = {
-        run: vi.fn().mockResolvedValue(
-          (async function* () {
-            yield { response: "<html>" };
-            yield { response: "</html>" };
-          })()
-        ),
+        run: vi
+          .fn()
+          .mockResolvedValue(sseStream([frame("<html>"), frame("</html>"), "data: [DONE]\n\n"])),
       };
       const { stream, done } = streamGeneration(fakeAi, "a prompt");
-      const reader = stream.getReader();
-      const chunks: string[] = [];
-      for (let r = await reader.read(); !r.done; r = await reader.read()) {
-        chunks.push(new TextDecoder().decode(r.value));
-      }
-      expect(chunks.join("")).toBe("<html></html>");
+      expect(await readAll(stream)).toBe("<html></html>");
       expect(await done).toBe("<html></html>");
     });
 
-    it("calls ai.run with the prompt and stream:true", async () => {
+    it("handles SSE frames split across byte-chunk boundaries and multi-byte characters", async () => {
+      const raw = frame("<p>héllo ✓</p>") + frame("<p>2</p>") + "data: [DONE]\n\n";
+      const bytes = new TextEncoder().encode(raw);
+      // Emit one byte at a time so frames AND UTF-8 sequences straddle chunks.
+      const source = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const b of bytes) controller.enqueue(new Uint8Array([b]));
+          controller.close();
+        },
+      });
+      const fakeAi = { run: vi.fn().mockResolvedValue(source) };
+      const { stream, done } = streamGeneration(fakeAi, "a prompt");
+      expect(await readAll(stream)).toBe("<p>héllo ✓</p><p>2</p>");
+      expect(await done).toBe("<p>héllo ✓</p><p>2</p>");
+    });
+
+    it("stops at [DONE] and ignores frames after it", async () => {
       const fakeAi = {
-        run: vi.fn().mockResolvedValue(
-          (async function* () {
-            yield { response: "ok" };
-          })()
-        ),
+        run: vi
+          .fn()
+          .mockResolvedValue(sseStream([frame("a"), "data: [DONE]\n\n", frame("ignored")])),
       };
       const { done } = streamGeneration(fakeAi, "a prompt");
+      expect(await done).toBe("a");
+    });
+
+    it("resolves with the text so far if the source closes without [DONE]", async () => {
+      const fakeAi = { run: vi.fn().mockResolvedValue(sseStream([frame("a"), frame("b")])) };
+      const { done } = streamGeneration(fakeAi, "a prompt");
+      expect(await done).toBe("ab");
+    });
+
+    it("calls ai.run with the model id, then { prompt, stream: true, max_tokens }", async () => {
+      const fakeAi = {
+        run: vi.fn().mockResolvedValue(sseStream([frame("ok"), "data: [DONE]\n\n"])),
+      };
+      const prompt = buildPrompt("<html></html>", "add a footer");
+      const { done } = streamGeneration(fakeAi, prompt);
       await done;
 
       expect(fakeAi.run).toHaveBeenCalledTimes(1);
-      const [, options] = fakeAi.run.mock.calls[0];
-      expect(options).toMatchObject({ stream: true });
+      const [model, inputs] = fakeAi.run.mock.calls[0];
+      expect(model).toBe(MODEL_ID);
+      expect(model).toMatch(/^@cf\//);
+      expect(inputs).toEqual({ prompt, stream: true, max_tokens: MAX_OUTPUT_TOKENS });
+      expect(MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(4096);
     });
 
-    it("resolves done with an empty string when the iterable yields nothing", async () => {
-      const fakeAi = {
-        run: vi.fn().mockResolvedValue(
-          (async function* () {
-            // no chunks
-          })()
-        ),
-      };
+    it("resolves done with an empty string when the stream has only [DONE]", async () => {
+      const fakeAi = { run: vi.fn().mockResolvedValue(sseStream(["data: [DONE]\n\n"])) };
       const { stream, done } = streamGeneration(fakeAi, "a prompt");
-      await stream.getReader().read();
+      expect(await readAll(stream)).toBe("");
       expect(await done).toBe("");
+    });
+
+    it("errors the stream and rejects done when ai.run rejects", async () => {
+      const fakeAi = { run: vi.fn().mockRejectedValue(new Error("AI unavailable")) };
+      const { stream, done } = streamGeneration(fakeAi, "a prompt");
+      await expect(done).rejects.toThrow("AI unavailable");
+      await expect(readAll(stream)).rejects.toThrow("AI unavailable");
+    });
+
+    it("errors the stream and rejects done when the source stream errors mid-iteration", async () => {
+      const encoder = new TextEncoder();
+      let pulls = 0;
+      const source = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls++;
+          if (pulls === 1) {
+            controller.enqueue(encoder.encode(frame("<html>")));
+          } else {
+            controller.error(new Error("connection reset"));
+          }
+        },
+      });
+      const fakeAi = { run: vi.fn().mockResolvedValue(source) };
+      const { stream, done } = streamGeneration(fakeAi, "a prompt");
+      await expect(done).rejects.toThrow("connection reset");
+      await expect(readAll(stream)).rejects.toThrow("connection reset");
+    });
+
+    it("errors the stream and rejects done on a malformed SSE data payload", async () => {
+      const fakeAi = { run: vi.fn().mockResolvedValue(sseStream(["data: {not json\n\n"])) };
+      const { stream, done } = streamGeneration(fakeAi, "a prompt");
+      await expect(done).rejects.toThrow();
+      await expect(readAll(stream)).rejects.toThrow();
     });
   });
 });

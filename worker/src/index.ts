@@ -22,7 +22,7 @@ export interface Env {
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
@@ -74,7 +74,7 @@ export default {
       if (session instanceof Response) {
         return session;
       }
-      return handleChatProject(chatMatch[1], request, session, env, ctx);
+      return handleChatProject(chatMatch[1], request, session, env);
     }
 
     // Handle GET /api/projects/:id
@@ -290,8 +290,7 @@ async function handleChatProject(
   projectId: string,
   request: Request,
   session: { username: string },
-  env: Env,
-  ctx: ExecutionContext
+  env: Env
 ): Promise<Response> {
   const id = env.USER_DO.idFromName(session.username);
   const stub = env.USER_DO.get(id);
@@ -302,44 +301,66 @@ async function handleChatProject(
   }
   const { project } = (await getRes.json()) as { project: Project };
 
-  const { message } = (await request.json()) as { message: string };
+  let message: unknown;
+  try {
+    ({ message } = (await request.json()) as { message?: unknown });
+  } catch {
+    return Response.json({ error: "invalid_input" }, { status: 400 });
+  }
+  if (typeof message !== "string" || message.trim() === "") {
+    return Response.json({ error: "invalid_input" }, { status: 400 });
+  }
+  const userText = message;
 
-  const prompt = buildPrompt(project.html, message);
-  // `env.AI`'s real type (`Ai<AiModels>`) has a much narrower `run` overload
-  // set than `streamGeneration`'s intentionally loose `AiBinding` shape (see
-  // generate.ts); the module is designed to accept anything shaped like
-  // `{ run: Function }`, including the real binding, so this cast just
-  // bridges that structural gap.
+  const prompt = buildPrompt(project.html, userText);
+  // `env.AI`'s real type (`Ai<AiModels>`) has a large overload set keyed on
+  // literal model ids; `streamGeneration` takes the narrower `AiBinding`
+  // shape (model id string + inputs object, see generate.ts), which the real
+  // binding satisfies at runtime. This cast bridges that structural gap.
   const { stream, done } = streamGeneration(env.AI as unknown as AiBinding, prompt);
+  // If generation fails, `stream` errors (which the TransformStream below
+  // propagates to the client) and `flush` never runs, so `done`'s rejection
+  // would otherwise be unobserved. The error itself is not lost.
+  done.catch(() => {});
 
-  // The HTTP response below starts streaming immediately; persistence has
-  // to happen once the full model output is known, which is after the
-  // response has already been handed back to the client. `ctx.waitUntil`
-  // keeps this Worker invocation alive long enough for that persist call to
-  // complete, without making the client wait for it on top of the stream.
-  const persist = done
-    .then((fullText) => {
+  // Persist BEFORE the response stream closes: `flush` runs after the last
+  // generated chunk has been forwarded, and the client only sees
+  // end-of-stream once it resolves. So when `streamChat` resolves on the
+  // frontend, the follow-up `getProject` is guaranteed to see the new HTML.
+  // If persisting fails, or the model produced no extractable HTML, the
+  // stream is errored instead of closed, so the client sees a failure
+  // rather than a silent success.
+  const persisting = new TransformStream<Uint8Array, Uint8Array>({
+    async flush(controller) {
+      const fullText = await done;
       const html = extractHtml(fullText);
       const now = Date.now();
-      const userMessage: ChatMessage = { role: "user", content: message, timestamp: now };
+      const userMessage: ChatMessage = { role: "user", content: userText, timestamp: now };
       const assistantMessage: ChatMessage = {
         role: "assistant",
-        content: html,
+        // On extraction failure, record what the model actually said so the
+        // turn is visible in history; the page's HTML is left untouched.
+        content: html ?? fullText,
         timestamp: now,
       };
       const chatHistory = [...project.chatHistory, userMessage, assistantMessage];
-      return stub.fetch(`https://do/internal/projects/${projectId}`, {
-        method: "PUT",
-        body: JSON.stringify({ html, chatHistory }),
-      });
-    })
-    .catch(() => {
-      // Generation or persistence failed; nothing further to do here since
-      // the response stream has already reported the error to the client.
-    });
-  ctx.waitUntil(persist);
+      const updates = html === null ? { chatHistory } : { html, chatHistory };
 
-  return new Response(stream, {
+      const putRes = await stub.fetch(`https://do/internal/projects/${projectId}`, {
+        method: "PUT",
+        body: JSON.stringify(updates),
+      });
+      if (!putRes.ok) {
+        controller.error(new Error("persist_failed"));
+        return;
+      }
+      if (html === null) {
+        controller.error(new Error("no_html_generated"));
+      }
+    },
+  });
+
+  return new Response(stream.pipeThrough(persisting), {
     status: 200,
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
