@@ -13,6 +13,7 @@ export function slugify(input: string): string {
  * Builds a Cloudflare Pages project name from a username, project name, and attempt number.
  * If attempt is 0, returns "username-slugified-project-name".
  * If attempt > 0, returns "username-slugified-project-name-attempt".
+ * The result is normalized to remove leading/trailing hyphens and collapse consecutive hyphens.
  */
 export function buildPagesProjectName(
   username: string,
@@ -21,5 +22,9 @@ export function buildPagesProjectName(
 ): string {
   const projectSlug = slugify(projectName);
   const baseSlug = slugify(username) + "-" + projectSlug;
-  return attempt > 0 ? baseSlug + "-" + attempt : baseSlug;
+  const result = attempt > 0 ? baseSlug + "-" + attempt : baseSlug;
+  // Normalize the result to handle edge cases where slugified inputs are empty
+  return result
+    .replace(/^-|-$/g, "") // Trim leading/trailing hyphens
+    .replace(/-+/g, "-"); // Collapse consecutive hyphens
 }
