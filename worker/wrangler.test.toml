@@ -6,6 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 # NOTE: AI binding is not available in test environment
 # It's defined in wrangler.toml for production use
 
+[vars]
+SESSION_SECRET = "test-secret"
+
 # One Durable Object per user, storing that user's profile + projects.
 [[durable_objects.bindings]]
 name = "USER_DO"
