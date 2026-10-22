@@ -1,0 +1,11 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #1a1a1a;
+}
+
+#app {
+  max-width: 640px;
+  margin: 4rem auto;
+  padding: 0 1rem;
+}
