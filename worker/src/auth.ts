@@ -120,3 +120,130 @@ function constantTimeCompare(a: string, b: string): boolean {
 
   return result === 0;
 }
+
+/**
+ * Convert a Uint8Array to a base64url string (RFC 4648 without padding).
+ */
+function bytesToBase64Url(bytes: Uint8Array): string {
+  const base64 = btoa(String.fromCharCode(...bytes));
+  // Replace standard base64 characters with base64url characters and remove padding
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+/**
+ * Convert a base64url string to a Uint8Array (RFC 4648 without padding).
+ */
+function base64UrlToBytes(base64url: string): Uint8Array {
+  // Add padding if needed
+  const padding = 4 - (base64url.length % 4);
+  const paddedBase64 =
+    base64url.replace(/-/g, "+").replace(/_/g, "/") + (padding < 4 ? "=".repeat(padding) : "");
+
+  const binaryString = atob(paddedBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Sign a session cookie with an HMAC-SHA256 signature.
+ * @param username The username to include in the session
+ * @param secret The secret key for HMAC signing
+ * @param ttlSeconds The time-to-live in seconds
+ * @returns A signed session cookie value in the format: base64url(payload) + "." + base64url(signature)
+ */
+export async function signSession(
+  username: string,
+  secret: string,
+  ttlSeconds: number
+): Promise<string> {
+  // Create the payload with username and expiration time
+  const now = Math.floor(Date.now() / 1000); // Convert to seconds
+  const exp = now + ttlSeconds;
+  const payload = { username, exp };
+
+  // Encode payload to JSON and then to base64url
+  const payloadJson = JSON.stringify(payload);
+  const payloadBytes = new TextEncoder().encode(payloadJson);
+  const payloadBase64Url = bytesToBase64Url(payloadBytes);
+
+  // Create HMAC-SHA256 signature
+  const secretKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signatureBytes = await crypto.subtle.sign(
+    "HMAC",
+    secretKey,
+    new TextEncoder().encode(payloadBase64Url)
+  );
+
+  const signatureBase64Url = bytesToBase64Url(new Uint8Array(signatureBytes));
+
+  // Return cookie in the format: payload.signature
+  return `${payloadBase64Url}.${signatureBase64Url}`;
+}
+
+/**
+ * Verify a signed session cookie and extract the username.
+ * @param cookieValue The signed session cookie value
+ * @param secret The secret key used for HMAC signing
+ * @returns An object with the username if valid, null if invalid or expired
+ */
+export async function verifySession(
+  cookieValue: string,
+  secret: string
+): Promise<{ username: string } | null> {
+  try {
+    // Split the cookie into payload and signature
+    const parts = cookieValue.split(".");
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    const [payloadBase64Url, signatureBase64Url] = parts;
+
+    // Verify the signature
+    const secretKey = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    const signatureBytes = base64UrlToBytes(signatureBase64Url);
+    const isValid = await crypto.subtle.verify(
+      "HMAC",
+      secretKey,
+      signatureBytes,
+      new TextEncoder().encode(payloadBase64Url)
+    );
+
+    if (!isValid) {
+      return null;
+    }
+
+    // Decode the payload
+    const payloadBytes = base64UrlToBytes(payloadBase64Url);
+    const payloadJson = new TextDecoder().decode(payloadBytes);
+    const payload = JSON.parse(payloadJson) as { username: string; exp: number };
+
+    // Check if the cookie has expired
+    const now = Math.floor(Date.now() / 1000); // Convert to seconds
+    if (payload.exp < now) {
+      return null;
+    }
+
+    return { username: payload.username };
+  } catch {
+    // If anything fails during verification (invalid JSON, etc.), return null
+    return null;
+  }
+}
