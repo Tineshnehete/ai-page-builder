@@ -80,11 +80,16 @@ function fakeAiEnv(run: ReturnType<typeof vi.fn>): Env {
   return { ...(env as Env), AI: { run } as unknown as Env["AI"] };
 }
 
-function chatRequest(projectId: string, cookie: string, message: unknown): Request {
+function chatRequest(
+  projectId: string,
+  cookie: string,
+  message: unknown,
+  style?: unknown
+): Request {
   return new Request(`https://example.com/api/projects/${projectId}/chat`, {
     method: "POST",
     headers: { Cookie: cookie },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(style === undefined ? { message } : { message, style }),
   });
 }
 
@@ -130,6 +135,40 @@ describe("chat endpoint", () => {
     expect(inputs).toMatchObject({ stream: true });
     expect(inputs.prompt).toContain("make it say new");
     await waitOnExecutionContext(ctx);
+  });
+
+  it("includes the requested style preset's guidance in the prompt", async () => {
+    const cookie = await registerAndLogin("nikau", "pw123456");
+    const project = await createProject(cookie, "Draft");
+    const run = vi
+      .fn()
+      .mockImplementation(async () => sseStream(["SUMMARY: ok\n```html\n<html></html>\n```"]));
+    const res = await worker.fetch(
+      chatRequest(project.id, cookie, "add a footer", "dark"),
+      fakeAiEnv(run),
+      createExecutionContext()
+    );
+    await res.text();
+
+    const [, inputs] = run.mock.calls[0];
+    expect(inputs.prompt).toContain("Dark mode");
+  });
+
+  it("falls back to the default style when an unrecognized style is given", async () => {
+    const cookie = await registerAndLogin("naia", "pw123456");
+    const project = await createProject(cookie, "Draft");
+    const run = vi
+      .fn()
+      .mockImplementation(async () => sseStream(["SUMMARY: ok\n```html\n<html></html>\n```"]));
+    const res = await worker.fetch(
+      chatRequest(project.id, cookie, "add a footer", "not-a-real-style"),
+      fakeAiEnv(run),
+      createExecutionContext()
+    );
+    await res.text();
+
+    const [, inputs] = run.mock.calls[0];
+    expect(inputs.prompt).toContain("No specific style preference");
   });
 
   it("extracts the html from a fenced block wrapped in prose", async () => {

@@ -323,8 +323,9 @@ async function handleChatProject(
   const { project } = (await getRes.json()) as { project: Project };
 
   let message: unknown;
+  let style: unknown;
   try {
-    ({ message } = (await request.json()) as { message?: unknown });
+    ({ message, style } = (await request.json()) as { message?: unknown; style?: unknown });
   } catch {
     return Response.json({ error: "invalid_input" }, { status: 400 });
   }
@@ -332,8 +333,11 @@ async function handleChatProject(
     return Response.json({ error: "invalid_input" }, { status: 400 });
   }
   const userText = message;
+  // An unrecognized or missing style falls back to the default preset
+  // inside buildPrompt itself, so no validation is needed here.
+  const stylePreset = typeof style === "string" ? style : undefined;
 
-  const prompt = buildPrompt(project.html, userText);
+  const prompt = buildPrompt(project.html, userText, stylePreset);
   // `env.AI`'s real type (`Ai<AiModels>`) has a large overload set keyed on
   // literal model ids; `streamGeneration` takes the narrower `AiBinding`
   // shape (model id string + inputs object, see generate.ts), which the real

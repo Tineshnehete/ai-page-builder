@@ -561,12 +561,40 @@ function renderEditorView(initialProject) {
     appendMessageBubble(message.role, message.content);
   }
 
+  // Style presets offered to the user; values match the backend's
+  // STYLE_PRESETS keys in worker/src/generate.ts exactly (the two are
+  // separate deployables with no shared code, so this is the one place
+  // the key list has to be kept in sync by hand).
+  const STYLE_OPTIONS = [
+    { value: "default", label: "Default" },
+    { value: "dark", label: "Dark" },
+    { value: "modern", label: "Modern" },
+    { value: "minimal", label: "Minimal" },
+    { value: "playful", label: "Playful" },
+    { value: "corporate", label: "Corporate" },
+  ];
+
   const chatInput = el("textarea", {
+    className: "chat-input",
     placeholder: "Describe the change you want...",
-    rows: "2",
+    rows: "3",
   });
+  const styleSelect = el(
+    "select",
+    { className: "style-select", title: "Visual style preference for new changes" },
+    STYLE_OPTIONS.map((opt) => el("option", { value: opt.value }, [opt.label]))
+  );
   const sendBtn = el("button", { className: "btn btn-primary", type: "submit" }, [icon("send"), "Send"]);
   const chatErrorEl = el("p", { className: "error", role: "alert" });
+
+  // The textarea is multi-line with the send button in a toolbar below it,
+  // so plain Enter inserts a newline as expected; Ctrl/Cmd+Enter submits.
+  chatInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      sendBtn.click();
+    }
+  });
 
   const chatForm = el(
     "form",
@@ -590,7 +618,7 @@ function renderEditorView(initialProject) {
         const loadingBubble = appendLoadingBubble();
 
         try {
-          await streamChat(project.id, message, () => {});
+          await streamChat(project.id, message, () => {}, styleSelect.value);
 
           // Per the design, the live preview only updates once the full
           // response has arrived, not token-by-token: fetch the persisted
@@ -620,7 +648,7 @@ function renderEditorView(initialProject) {
         }
       },
     },
-    [chatInput, sendBtn]
+    [chatInput, el("div", { className: "chat-toolbar" }, [styleSelect, sendBtn])]
   );
 
   chatPane.append(messagesEl, chatForm, chatErrorEl);

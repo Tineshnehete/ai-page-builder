@@ -28,20 +28,50 @@ export interface AiBinding {
 }
 
 /**
- * Builds the prompt sent to the model, instructing it to return only the
- * full raw HTML document for the page given the current HTML and the user's
- * requested change. Passed to the model as `inputs.prompt`.
+ * Named visual-style presets a user can pick in the chat UI. Keys are the
+ * wire values sent from the frontend; values are the plain-English styling
+ * guidance interpolated into the prompt.
  */
-export function buildPrompt(currentHtml: string, message: string): string {
+export const STYLE_PRESETS: Record<string, string> = {
+  default: "No specific style preference — use clean, sensible defaults.",
+  dark: "Dark mode: a dark background (near-black or deep navy), light text, subtle borders, muted accent colors, and good contrast.",
+  modern: "Modern: bold sans-serif typography, generous whitespace, soft shadows, rounded corners, a vivid accent color, and gradients where tasteful.",
+  minimal: "Minimal: plenty of whitespace, a restrained palette (mostly black/white plus one accent), no unnecessary decoration, simple typography.",
+  playful: "Playful: bright, varied colors, rounded shapes, friendly touches, and casual, fun typography.",
+  corporate: "Corporate/professional: a neutral palette (navy/gray/white), conservative typography, a structured grid layout, and a polished, trustworthy feel.",
+};
+
+/** Default style preset key, used when none is given or the given one is unrecognized. */
+export const DEFAULT_STYLE_PRESET = "default";
+
+/**
+ * Builds the prompt sent to the model: the website's current definition
+ * (its existing HTML) first, then the styling preference to apply, then the
+ * specific change being requested — instructing the model to return only
+ * the full raw HTML document for the page. Passed to the model as
+ * `inputs.prompt`.
+ */
+export function buildPrompt(
+  currentHtml: string,
+  message: string,
+  style: string = DEFAULT_STYLE_PRESET
+): string {
+  const styleGuidance = STYLE_PRESETS[style] ?? STYLE_PRESETS[DEFAULT_STYLE_PRESET];
+
   return `You are editing the HTML source of a single web page.
 
-Current HTML:
+WEBSITE DEFINITION
+This is the page's current, complete HTML — the site as it exists today:
 ${currentHtml}
 
+STYLING PREFERENCES
+${styleGuidance}
+
+REQUESTED CHANGE
 The user has requested the following change:
 ${message}
 
-Apply the requested change to the HTML above. Respond in EXACTLY this format and nothing else:
+Apply the requested change to the website above, following the styling preferences wherever they don't conflict with an explicit instruction in the requested change. Respond in EXACTLY this format and nothing else:
 
 SUMMARY: <one short, friendly sentence in plain English describing what you changed>
 \`\`\`html

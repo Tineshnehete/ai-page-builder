@@ -251,6 +251,24 @@ describe("api.js", () => {
     );
   });
 
+  it("streamChat includes the style preset in the request body when given", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("ok"));
+        controller.close();
+      },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, body });
+    await streamChat("1", "hi", () => {}, "dark");
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/projects/1/chat",
+      expect.objectContaining({
+        body: JSON.stringify({ message: "hi", style: "dark" }),
+      })
+    );
+  });
+
   it("streamChat throws on a non-2xx response", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

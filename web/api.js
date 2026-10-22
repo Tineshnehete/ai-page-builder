@@ -100,12 +100,12 @@ export async function publishProject(id) {
   return parseJsonOrThrow(response);
 }
 
-export async function streamChat(projectId, message, onChunk) {
+export async function streamChat(projectId, message, onChunk, style) {
   const response = await fetch(`/api/projects/${projectId}/chat`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(style === undefined ? { message } : { message, style }),
   });
 
   if (!response.ok) {

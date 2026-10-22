@@ -4,6 +4,8 @@ import {
   extractHtml,
   extractSummary,
   SUMMARY_FALLBACK,
+  STYLE_PRESETS,
+  DEFAULT_STYLE_PRESET,
   streamGeneration,
   MODEL_ID,
   MAX_OUTPUT_TOKENS,
@@ -51,6 +53,28 @@ describe("AI generation module", () => {
       const prompt = buildPrompt("<html></html>", "add a footer");
 
       expect(prompt.toLowerCase()).toContain("html");
+    });
+
+    it("puts the website definition (current HTML) before the styling preferences", () => {
+      const prompt = buildPrompt("<html><body>Hi</body></html>", "add a footer", "dark");
+
+      expect(prompt.indexOf("WEBSITE DEFINITION")).toBeGreaterThanOrEqual(0);
+      expect(prompt.indexOf("WEBSITE DEFINITION")).toBeLessThan(prompt.indexOf("STYLING PREFERENCES"));
+    });
+
+    it("includes the requested style preset's guidance", () => {
+      const prompt = buildPrompt("<html></html>", "add a footer", "dark");
+      expect(prompt).toContain(STYLE_PRESETS.dark);
+    });
+
+    it("defaults to the default style preset when none is given", () => {
+      const prompt = buildPrompt("<html></html>", "add a footer");
+      expect(prompt).toContain(STYLE_PRESETS[DEFAULT_STYLE_PRESET]);
+    });
+
+    it("falls back to the default style preset for an unrecognized style key", () => {
+      const prompt = buildPrompt("<html></html>", "add a footer", "not-a-real-style");
+      expect(prompt).toContain(STYLE_PRESETS[DEFAULT_STYLE_PRESET]);
     });
   });
 

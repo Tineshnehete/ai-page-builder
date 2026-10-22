@@ -537,23 +537,57 @@ button {
   }
 }
 
+/* The composer is a single card: textarea on top, a toolbar row (style
+   preset + send) below it -- not a side-by-side input+button row. */
 .chat-form {
   display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.65rem;
+}
+
+.chat-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 4.5rem;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.92rem;
+}
+
+.chat-input:focus {
+  outline: none;
+}
+
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
 }
 
-.chat-form textarea {
-  flex: 1;
-  resize: vertical;
-  padding: 0.6rem;
+.style-select {
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-family: inherit;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
-.chat-form textarea:focus {
+.style-select:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.chat-toolbar .btn {
+  margin-left: auto;
 }
 
 /* --- Preview pane: a gray "device" background so the browser-chrome frame
