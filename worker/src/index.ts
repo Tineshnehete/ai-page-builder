@@ -3,10 +3,11 @@
 // the full design (auth, chat/generate, publish, delete).
 
 import { hashPassword, verifyPassword, signSession, verifySession } from "./auth";
-import { UserRecord, Project } from "./user-do";
+import { UserRecord, Project, ChatMessage } from "./user-do";
 import { checkHtmlForAbuse } from "./abuse-filter";
 import { createPagesProject, deployPagesProject, deletePagesProject } from "./cf-pages";
 import { buildPagesProjectName } from "./slug";
+import { buildPrompt, extractHtml, streamGeneration, AiBinding } from "./generate";
 
 export { UserDO } from "./user-do";
 
@@ -21,7 +22,7 @@ export interface Env {
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/health") {
@@ -64,6 +65,16 @@ export default {
         return session;
       }
       return handlePublishProject(publishMatch[1], session, env);
+    }
+
+    // Handle POST /api/projects/:id/chat
+    const chatMatch = url.pathname.match(/^\/api\/projects\/(.+)\/chat$/);
+    if (chatMatch && request.method === "POST") {
+      const session = await requireSession(request, env);
+      if (session instanceof Response) {
+        return session;
+      }
+      return handleChatProject(chatMatch[1], request, session, env, ctx);
     }
 
     // Handle GET /api/projects/:id
@@ -273,6 +284,65 @@ async function handlePublishProject(
   } catch {
     return Response.json({ error: "cf_api_error" }, { status: 502 });
   }
+}
+
+async function handleChatProject(
+  projectId: string,
+  request: Request,
+  session: { username: string },
+  env: Env,
+  ctx: ExecutionContext
+): Promise<Response> {
+  const id = env.USER_DO.idFromName(session.username);
+  const stub = env.USER_DO.get(id);
+
+  const getRes = await stub.fetch(`https://do/internal/projects/${projectId}`);
+  if (getRes.status !== 200) {
+    return new Response("Not found", { status: 404 });
+  }
+  const { project } = (await getRes.json()) as { project: Project };
+
+  const { message } = (await request.json()) as { message: string };
+
+  const prompt = buildPrompt(project.html, message);
+  // `env.AI`'s real type (`Ai<AiModels>`) has a much narrower `run` overload
+  // set than `streamGeneration`'s intentionally loose `AiBinding` shape (see
+  // generate.ts); the module is designed to accept anything shaped like
+  // `{ run: Function }`, including the real binding, so this cast just
+  // bridges that structural gap.
+  const { stream, done } = streamGeneration(env.AI as unknown as AiBinding, prompt);
+
+  // The HTTP response below starts streaming immediately; persistence has
+  // to happen once the full model output is known, which is after the
+  // response has already been handed back to the client. `ctx.waitUntil`
+  // keeps this Worker invocation alive long enough for that persist call to
+  // complete, without making the client wait for it on top of the stream.
+  const persist = done
+    .then((fullText) => {
+      const html = extractHtml(fullText);
+      const now = Date.now();
+      const userMessage: ChatMessage = { role: "user", content: message, timestamp: now };
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: html,
+        timestamp: now,
+      };
+      const chatHistory = [...project.chatHistory, userMessage, assistantMessage];
+      return stub.fetch(`https://do/internal/projects/${projectId}`, {
+        method: "PUT",
+        body: JSON.stringify({ html, chatHistory }),
+      });
+    })
+    .catch(() => {
+      // Generation or persistence failed; nothing further to do here since
+      // the response stream has already reported the error to the client.
+    });
+  ctx.waitUntil(persist);
+
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 }
 
 async function handleRegister(request: Request, env: Env): Promise<Response> {
