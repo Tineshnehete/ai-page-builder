@@ -22,9 +22,12 @@ binding = "AI"
 name = "USER_DO"
 class_name = "UserDO"
 
+# A free-plan account can only use SQLite-backed Durable Objects, declared
+# via new_sqlite_classes (not the legacy new_classes). The storage API
+# (state.storage.get/put) is unchanged either way.
 [[migrations]]
 tag = "v1"
-new_classes = ["UserDO"]
+new_sqlite_classes = ["UserDO"]
 
 # Secrets (set with `wrangler secret put <NAME>`, not committed):
 #   SESSION_SECRET      - HMAC key for signing session cookies
