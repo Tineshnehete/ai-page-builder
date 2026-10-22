@@ -170,6 +170,12 @@ classDiagram
   secret bound to the Worker) — no JWT library, no session store
   needed since the signature itself is the proof. **My call.**
 - No password reset flow in this version; a non-goal.
+- Logout clears the browser's cookie but cannot revoke an already-issued
+  token server-side, since there is no session store — a captured/replayed
+  session cookie stays valid until its TTL expires even after "logout."
+  **My call**, accepted consequence of the stateless-cookie design; revisit
+  only if this app ever needs real-time revocation (short TTLs + rotation,
+  or a lightweight denylist, would be the fix).
 
 ## AI Editing Behavior
 
