@@ -3,6 +3,8 @@
 Chat with an AI to build a single-page website, preview it live, and
 publish it to Cloudflare Pages — multi-user, minimal by design.
 
+**Live demo:** [cf-demo.tineshnehete.com](https://cf-demo.tineshnehete.com/)
+
 Full design (architecture, data model, auth, publish flow, streaming):
 [`docs/superpowers/specs/2026-10-22-ai-page-builder-design.md`](docs/superpowers/specs/2026-10-22-ai-page-builder-design.md)
 
