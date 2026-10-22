@@ -12,30 +12,34 @@ import { describe, it, expect } from "vitest";
 // optional `username` in the POST body for exactly this case, which is what
 // lets these tests exercise real behavior in this environment. Production
 // callers never need to send it.
+//
+// Usernames are prefixed "udo-" because all test files share one Durable
+// Object namespace (isolatedStorage is off, see vitest.config.ts), so names
+// must be unique across files, not just within this one.
 describe("UserDO user record", () => {
   it("creates a user then returns it on GET", async () => {
-    const id = env.USER_DO.idFromName("alice");
+    const id = env.USER_DO.idFromName("udo-alice");
     const stub = env.USER_DO.get(id);
     const create = await stub.fetch("https://do/internal/user", {
       method: "POST",
-      body: JSON.stringify({ passwordHash: "h", passwordSalt: "s", username: "alice" }),
+      body: JSON.stringify({ passwordHash: "h", passwordSalt: "s", username: "udo-alice" }),
     });
     expect(create.status).toBe(201);
     const get = await stub.fetch("https://do/internal/user");
     expect(get.status).toBe(200);
-    expect(await get.json()).toMatchObject({ username: "alice", passwordHash: "h" });
+    expect(await get.json()).toMatchObject({ username: "udo-alice", passwordHash: "h" });
   });
 
   it("rejects creating a second record for the same DO with 409", async () => {
-    const id = env.USER_DO.idFromName("bob");
+    const id = env.USER_DO.idFromName("udo-bob");
     const stub = env.USER_DO.get(id);
     await stub.fetch("https://do/internal/user", {
       method: "POST",
-      body: JSON.stringify({ passwordHash: "h1", passwordSalt: "s1", username: "bob" }),
+      body: JSON.stringify({ passwordHash: "h1", passwordSalt: "s1", username: "udo-bob" }),
     });
     const second = await stub.fetch("https://do/internal/user", {
       method: "POST",
-      body: JSON.stringify({ passwordHash: "h2", passwordSalt: "s2", username: "bob" }),
+      body: JSON.stringify({ passwordHash: "h2", passwordSalt: "s2", username: "udo-bob" }),
     });
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({ error: "username_taken" });
@@ -44,18 +48,18 @@ describe("UserDO user record", () => {
   });
 
   it("returns 404 on GET when no user record exists", async () => {
-    const id = env.USER_DO.idFromName("carol");
+    const id = env.USER_DO.idFromName("udo-carol");
     const stub = env.USER_DO.get(id);
     const get = await stub.fetch("https://do/internal/user");
     expect(get.status).toBe(404);
   });
 
   it("returns an empty projects array on a freshly created user", async () => {
-    const id = env.USER_DO.idFromName("dave");
+    const id = env.USER_DO.idFromName("udo-dave");
     const stub = env.USER_DO.get(id);
     await stub.fetch("https://do/internal/user", {
       method: "POST",
-      body: JSON.stringify({ passwordHash: "h", passwordSalt: "s", username: "dave" }),
+      body: JSON.stringify({ passwordHash: "h", passwordSalt: "s", username: "udo-dave" }),
     });
     const get = await stub.fetch("https://do/internal/user");
     expect(await get.json()).toMatchObject({ projects: [] });

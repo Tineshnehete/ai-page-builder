@@ -64,13 +64,13 @@ describe("register and login routes", () => {
       "not json",
       JSON.stringify(null),
       JSON.stringify({}),
-      JSON.stringify({ username: "fay" }),
+      JSON.stringify({ username: "m1-fay" }),
       JSON.stringify({ password: "pw123456" }),
       JSON.stringify({ username: "", password: "pw123456" }),
       JSON.stringify({ username: "   ", password: "pw123456" }),
-      JSON.stringify({ username: "fay", password: "" }),
+      JSON.stringify({ username: "m1-fay", password: "" }),
       JSON.stringify({ username: 42, password: "pw123456" }),
-      JSON.stringify({ username: "fay", password: ["x"] }),
+      JSON.stringify({ username: "m1-fay", password: ["x"] }),
     ];
     for (const route of ["register", "login"]) {
       for (const body of badBodies) {

@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
+import { signSession, verifySession } from "../src/auth";
 
 async function registerAndLogin(username: string, password: string): Promise<string> {
   await SELF.fetch("https://example.com/api/register", {
@@ -29,6 +30,25 @@ describe("session guard, logout, and project create/list", () => {
       headers: { Cookie: "session=garbage.value" },
     });
     expect(res.status).toBe(401);
+  });
+
+  it("rejects /api/projects with a validly signed but expired session cookie", async () => {
+    await registerAndLogin("plc-expired", "pw123456");
+    // Correctly signed with the Worker's secret, but already past its exp.
+    const expired = await signSession("plc-expired", "test-secret", -60);
+    expect(await verifySession(expired, "test-secret")).toBeNull();
+    const res = await SELF.fetch("https://example.com/api/projects", {
+      headers: { Cookie: `session=${expired}` },
+    });
+    expect(res.status).toBe(401);
+
+    // Same user, same secret, unexpired: accepted -- so the 401 above is
+    // down to expiry alone.
+    const fresh = await signSession("plc-expired", "test-secret", 60);
+    const ok = await SELF.fetch("https://example.com/api/projects", {
+      headers: { Cookie: `session=${fresh}` },
+    });
+    expect(ok.status).toBe(200);
   });
 
   it("creates and lists a project for the logged-in user", async () => {

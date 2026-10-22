@@ -65,7 +65,7 @@ describe("delete endpoint", () => {
   });
 
   it("deletes a never-published project without calling the Pages API", async () => {
-    const cookie = await registerAndLogin("liam", "pw123456");
+    const cookie = await registerAndLogin("del-liam", "pw123456");
     const project = await createProject(cookie, "Draft");
     const cf = mockCloudflareApi();
     const res = await del(cookie, project.id);
@@ -124,7 +124,7 @@ describe("delete endpoint", () => {
   });
 
   it("returns 404 deleting a project that doesn't exist", async () => {
-    const cookie = await registerAndLogin("noah", "pw123456");
+    const cookie = await registerAndLogin("del-noah", "pw123456");
     const res = await del(cookie, "does-not-exist");
     expect(res.status).toBe(404);
   });
