@@ -5,7 +5,12 @@
 import { hashPassword, verifyPassword, signSession, verifySession } from "./auth";
 import { UserRecord, Project, ChatMessage } from "./user-do";
 import { checkHtmlForAbuse } from "./abuse-filter";
-import { createPagesProject, deployPagesProject, deletePagesProject } from "./cf-pages";
+import {
+  createPagesProject,
+  deployPagesProject,
+  deletePagesProject,
+  stablePagesUrl,
+} from "./cf-pages";
 import { buildPagesProjectName } from "./slug";
 import { buildPrompt, extractHtml, streamGeneration, AiBinding } from "./generate";
 
@@ -202,7 +207,9 @@ async function handleDeleteProject(
   }
   const { project } = (await getRes.json()) as { project: Project };
 
-  if (project.everPublished && project.pagesProjectName) {
+  // Gate on the Pages project existing, not on a successful publish: a
+  // first publish can create the Pages project and then fail to deploy.
+  if (project.pagesProjectName) {
     const result = await deletePagesProject(
       env.CF_ACCOUNT_ID,
       env.CF_API_TOKEN,
@@ -246,6 +253,7 @@ async function handlePublishProject(
   }
 
   let pagesProjectName = project.pagesProjectName;
+  let publishedUrl = project.publishedUrl;
 
   try {
     // Only the first publish needs to create the Pages project.
@@ -255,6 +263,9 @@ async function handlePublishProject(
         const result = await createPagesProject(env.CF_ACCOUNT_ID, env.CF_API_TOKEN, candidateName);
         if (result.created) {
           pagesProjectName = candidateName;
+          // The project's stable *.pages.dev URL, which stays the same
+          // across every future deploy (unlike the per-deployment URL).
+          publishedUrl = stablePagesUrl(result.subdomain, candidateName);
           break;
         }
         // result.alreadyExists: try the next attempt's name.
@@ -262,25 +273,35 @@ async function handlePublishProject(
       if (!pagesProjectName) {
         return Response.json({ error: "cf_api_error" }, { status: 502 });
       }
+
+      // Record the created Pages project immediately, before deploying: if
+      // the deploy below fails, the next publish reuses this project
+      // instead of creating (and orphaning) another one, and delete knows
+      // there's a Pages project to clean up.
+      const recordRes = await stub.fetch(`https://do/internal/projects/${projectId}`, {
+        method: "PUT",
+        body: JSON.stringify({ pagesProjectName, publishedUrl }),
+      });
+      if (!recordRes.ok) {
+        return Response.json({ error: "persist_failed" }, { status: 500 });
+      }
     }
 
-    const deployResult = await deployPagesProject(
-      env.CF_ACCOUNT_ID,
-      env.CF_API_TOKEN,
-      pagesProjectName,
-      project.html
-    );
+    if (!publishedUrl) {
+      publishedUrl = stablePagesUrl(undefined, pagesProjectName);
+    }
 
-    await stub.fetch(`https://do/internal/projects/${projectId}`, {
+    await deployPagesProject(env.CF_ACCOUNT_ID, env.CF_API_TOKEN, pagesProjectName, project.html);
+
+    const publishRes = await stub.fetch(`https://do/internal/projects/${projectId}`, {
       method: "PUT",
-      body: JSON.stringify({
-        pagesProjectName,
-        publishedUrl: deployResult.url,
-        everPublished: true,
-      }),
+      body: JSON.stringify({ publishedUrl, everPublished: true }),
     });
+    if (!publishRes.ok) {
+      return Response.json({ error: "persist_failed" }, { status: 500 });
+    }
 
-    return Response.json({ publishedUrl: deployResult.url }, { status: 200 });
+    return Response.json({ publishedUrl }, { status: 200 });
   } catch {
     return Response.json({ error: "cf_api_error" }, { status: 502 });
   }

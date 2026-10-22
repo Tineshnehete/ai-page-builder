@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mockCloudflareApi } from "./cf-api-mock";
 
 async function registerAndLogin(username: string, password: string): Promise<string> {
   await SELF.fetch("https://example.com/api/register", {
@@ -32,39 +33,30 @@ async function createProject(
 
 async function publishProject(
   cookie: string,
-  name: string
-): Promise<{ id: string; name: string }> {
+  name: string,
+  overrides: Parameters<typeof mockCloudflareApi>[0] = {}
+): Promise<{ id: string; name: string; publishStatus: number }> {
   const project = await createProject(cookie, name);
-
-  vi.spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          success: true,
-          result: { id: "abc123", name: "pages-project", subdomain: "pages-project" },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
-    )
-    .mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          success: true,
-          result: { id: "deploy123", url: "https://deploy-abc123.pages-project.pages.dev" },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
-    );
-
+  mockCloudflareApi(overrides);
   const res = await SELF.fetch(`https://example.com/api/projects/${project.id}/publish`, {
     method: "POST",
     headers: { Cookie: cookie },
   });
-  expect(res.status).toBe(200);
-
   vi.restoreAllMocks();
+  return { ...project, publishStatus: res.status };
+}
 
-  return project;
+function del(cookie: string, projectId: string) {
+  return SELF.fetch(`https://example.com/api/projects/${projectId}`, {
+    method: "DELETE",
+    headers: { Cookie: cookie },
+  });
+}
+
+function get(cookie: string, projectId: string) {
+  return SELF.fetch(`https://example.com/api/projects/${projectId}`, {
+    headers: { Cookie: cookie },
+  });
 }
 
 describe("delete endpoint", () => {
@@ -75,40 +67,65 @@ describe("delete endpoint", () => {
   it("deletes a never-published project without calling the Pages API", async () => {
     const cookie = await registerAndLogin("liam", "pw123456");
     const project = await createProject(cookie, "Draft");
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const res = await SELF.fetch(`https://example.com/api/projects/${project.id}`, {
-      method: "DELETE",
-      headers: { Cookie: cookie },
-    });
+    const cf = mockCloudflareApi();
+    const res = await del(cookie, project.id);
     expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
-    const after = await SELF.fetch(`https://example.com/api/projects/${project.id}`, {
-      headers: { Cookie: cookie },
-    });
-    expect(after.status).toBe(404);
+    expect(cf.spy).not.toHaveBeenCalled();
+    expect((await get(cookie, project.id)).status).toBe(404);
+  });
+
+  it("deletes a published project's Pages project, then the project", async () => {
+    const cookie = await registerAndLogin("maya", "pw123456");
+    const project = await publishProject(cookie, "Live");
+    expect(project.publishStatus).toBe(200);
+    const cf = mockCloudflareApi();
+    const res = await del(cookie, project.id);
+    expect(res.status).toBe(200);
+    expect(cf.routes()).toEqual(["deleteProject"]);
+    expect(cf.calls[0].url).toMatch(/\/pages\/projects\/maya-live$/);
+    expect((await get(cookie, project.id)).status).toBe(404);
   });
 
   it("keeps the project when the Pages deletion call fails", async () => {
     const cookie = await registerAndLogin("mia", "pw123456");
     const project = await publishProject(cookie, "Live");
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("{}", { status: 500 }));
-    const res = await SELF.fetch(`https://example.com/api/projects/${project.id}`, {
-      method: "DELETE",
-      headers: { Cookie: cookie },
+    expect(project.publishStatus).toBe(200);
+    mockCloudflareApi({
+      deleteProject: () => ({ status: 500, body: { success: false, errors: [{ message: "boom" }] } }),
     });
+    const res = await del(cookie, project.id);
     expect(res.status).toBe(502);
-    const after = await SELF.fetch(`https://example.com/api/projects/${project.id}`, {
-      headers: { Cookie: cookie },
+    expect((await get(cookie, project.id)).status).toBe(200);
+  });
+
+  it("succeeds when the Pages project was already removed outside the app (404)", async () => {
+    const cookie = await registerAndLogin("milo", "pw123456");
+    const project = await publishProject(cookie, "Gone");
+    expect(project.publishStatus).toBe(200);
+    mockCloudflareApi({
+      deleteProject: () => ({ status: 404, body: { success: false, errors: [{ message: "not found" }] } }),
     });
-    expect(after.status).toBe(200);
+    const res = await del(cookie, project.id);
+    expect(res.status).toBe(200);
+    expect((await get(cookie, project.id)).status).toBe(404);
+  });
+
+  it("cleans up a Pages project that was created but whose first deploy failed", async () => {
+    const cookie = await registerAndLogin("mona", "pw123456");
+    const project = await publishProject(cookie, "Half", {
+      createDeployment: () => ({ status: 500, body: { success: false, errors: [{ message: "boom" }] } }),
+    });
+    expect(project.publishStatus).toBe(502);
+    const cf = mockCloudflareApi();
+    const res = await del(cookie, project.id);
+    expect(res.status).toBe(200);
+    expect(cf.routes()).toEqual(["deleteProject"]);
+    expect(cf.calls[0].url).toMatch(/\/pages\/projects\/mona-half$/);
   });
 
   it("returns 404 deleting a project that doesn't exist", async () => {
     const cookie = await registerAndLogin("noah", "pw123456");
-    const res = await SELF.fetch("https://example.com/api/projects/does-not-exist", {
-      method: "DELETE",
-      headers: { Cookie: cookie },
-    });
+    const res = await del(cookie, "does-not-exist");
     expect(res.status).toBe(404);
   });
 
