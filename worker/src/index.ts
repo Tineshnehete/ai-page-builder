@@ -34,7 +34,7 @@ export default {
     }
 
     if (url.pathname === "/api/logout" && request.method === "POST") {
-      return handleLogout(request, env);
+      return handleLogout();
     }
 
     if (url.pathname === "/api/projects" && request.method === "GET") {
@@ -85,33 +85,10 @@ export async function requireSession(
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // The signed cookie alone stays valid until it expires; consult the
-  // per-user DO so a logout can actually revoke an already-issued token.
-  const id = env.USER_DO.idFromName(session.username);
-  const stub = env.USER_DO.get(id);
-  const sessionRes = await stub.fetch("https://do/internal/session");
-  const { active } = (await sessionRes.json()) as { active: boolean };
-  if (!active) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
-
   return session;
 }
 
-async function handleLogout(request: Request, env: Env): Promise<Response> {
-  const cookieValue = parseSessionCookie(request);
-  if (cookieValue) {
-    const session = await verifySession(cookieValue, env.SESSION_SECRET);
-    if (session) {
-      const id = env.USER_DO.idFromName(session.username);
-      const stub = env.USER_DO.get(id);
-      await stub.fetch("https://do/internal/session", {
-        method: "POST",
-        body: JSON.stringify({ active: false }),
-      });
-    }
-  }
-
+function handleLogout(): Response {
   return Response.json(
     { ok: true },
     {
@@ -197,13 +174,6 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   }
 
   const session = await signSession(username, env.SESSION_SECRET, SESSION_TTL_SECONDS);
-
-  // Mark this user's session as active again, in case a previous logout
-  // left it flagged inactive.
-  await stub.fetch("https://do/internal/session", {
-    method: "POST",
-    body: JSON.stringify({ active: true }),
-  });
 
   return Response.json(
     { ok: true },

@@ -54,19 +54,6 @@ export class UserDO {
       }
     }
 
-    // Lightweight server-side session-revocation flag, separate from the
-    // stateless signed cookie: logout needs *something* persistent to make
-    // an already-issued token stop working on replay, since the cookie's
-    // HMAC signature alone remains valid until it expires.
-    if (url.pathname === "/internal/session") {
-      if (request.method === "GET") {
-        return this.handleGetSessionActive();
-      }
-      if (request.method === "POST") {
-        return this.handleSetSessionActive(request);
-      }
-    }
-
     return new Response("Not found", { status: 404 });
   }
 
@@ -149,17 +136,5 @@ export class UserDO {
     await this.state.storage.put("user", record);
 
     return Response.json({ project }, { status: 201 });
-  }
-
-  private async handleGetSessionActive(): Promise<Response> {
-    // Absent key (never logged out) counts as active.
-    const active = (await this.state.storage.get<boolean>("sessionActive")) !== false;
-    return Response.json({ active });
-  }
-
-  private async handleSetSessionActive(request: Request): Promise<Response> {
-    const { active } = (await request.json()) as { active: boolean };
-    await this.state.storage.put("sessionActive", active);
-    return Response.json({ ok: true });
   }
 }
