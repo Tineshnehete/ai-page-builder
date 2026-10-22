@@ -1,0 +1,7 @@
+name = "ai-page-builder-worker"
+main = "src/index.ts"
+compatibility_date = "2024-05-12"
+compatibility_flags = ["nodejs_compat"]
+
+# NOTE: AI binding is not available in test environment
+# It's defined in wrangler.toml for production use
