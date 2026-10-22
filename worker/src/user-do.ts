@@ -34,8 +34,63 @@ export class UserDO {
   }
 
   async fetch(request: Request): Promise<Response> {
-    // Routing for user record / project CRUD is left to the builder;
-    // this is a scaffold stub so the project structure exists.
-    return new Response("UserDO stub", { status: 501 });
+    const url = new URL(request.url);
+
+    if (url.pathname === "/internal/user") {
+      if (request.method === "GET") {
+        return this.handleGetUser();
+      }
+      if (request.method === "POST") {
+        return this.handleCreateUser(request);
+      }
+    }
+
+    // Routing for project CRUD is left to the builder; this scaffold only
+    // implements user-record storage.
+    return new Response("Not found", { status: 404 });
+  }
+
+  private async handleGetUser(): Promise<Response> {
+    const record = await this.state.storage.get<UserRecord>("user");
+    if (!record) {
+      return new Response("Not found", { status: 404 });
+    }
+    return Response.json(record);
+  }
+
+  private async handleCreateUser(request: Request): Promise<Response> {
+    const existing = await this.state.storage.get<UserRecord>("user");
+    if (existing) {
+      return Response.json({ error: "username_taken" }, { status: 409 });
+    }
+
+    const body = (await request.json()) as {
+      passwordHash: string;
+      passwordSalt: string;
+      // Not part of the documented wire contract: the DO's identity is its
+      // username, taken from `this.state.id.name` (set when the caller used
+      // `idFromName(username)`, as every real caller does). Some local test
+      // runtimes don't propagate `id.name` into the DO instance, so this is
+      // accepted as a fallback purely so the record can still be created and
+      // addressed consistently in that environment; production callers never
+      // need to send it, since `id.name` is always set there.
+      username?: string;
+    };
+
+    const username = this.state.id.name ?? body.username;
+    if (!username) {
+      return Response.json({ error: "missing_username" }, { status: 400 });
+    }
+
+    const record: UserRecord = {
+      username,
+      passwordHash: body.passwordHash,
+      passwordSalt: body.passwordSalt,
+      projects: [],
+    };
+
+    await this.state.storage.put("user", record);
+
+    return Response.json({ username: record.username }, { status: 201 });
   }
 }
