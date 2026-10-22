@@ -45,8 +45,28 @@ export class UserDO {
       }
     }
 
-    // Routing for project CRUD is left to the builder; this scaffold only
-    // implements user-record storage.
+    if (url.pathname === "/internal/projects") {
+      if (request.method === "GET") {
+        return this.handleListProjects();
+      }
+      if (request.method === "POST") {
+        return this.handleCreateProject(request);
+      }
+    }
+
+    // Lightweight server-side session-revocation flag, separate from the
+    // stateless signed cookie: logout needs *something* persistent to make
+    // an already-issued token stop working on replay, since the cookie's
+    // HMAC signature alone remains valid until it expires.
+    if (url.pathname === "/internal/session") {
+      if (request.method === "GET") {
+        return this.handleGetSessionActive();
+      }
+      if (request.method === "POST") {
+        return this.handleSetSessionActive(request);
+      }
+    }
+
     return new Response("Not found", { status: 404 });
   }
 
@@ -92,5 +112,54 @@ export class UserDO {
     await this.state.storage.put("user", record);
 
     return Response.json({ username: record.username }, { status: 201 });
+  }
+
+  private async handleListProjects(): Promise<Response> {
+    const record = await this.state.storage.get<UserRecord>("user");
+    const projects = record?.projects ?? [];
+    return Response.json({
+      projects: projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        everPublished: p.everPublished,
+        publishedUrl: p.publishedUrl,
+      })),
+    });
+  }
+
+  private async handleCreateProject(request: Request): Promise<Response> {
+    const record = await this.state.storage.get<UserRecord>("user");
+    if (!record) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const body = (await request.json()) as { name: string };
+
+    const project: Project = {
+      id: crypto.randomUUID(),
+      name: body.name,
+      html: "",
+      chatHistory: [],
+      pagesProjectName: null,
+      publishedUrl: null,
+      everPublished: false,
+    };
+
+    record.projects.push(project);
+    await this.state.storage.put("user", record);
+
+    return Response.json({ project }, { status: 201 });
+  }
+
+  private async handleGetSessionActive(): Promise<Response> {
+    // Absent key (never logged out) counts as active.
+    const active = (await this.state.storage.get<boolean>("sessionActive")) !== false;
+    return Response.json({ active });
+  }
+
+  private async handleSetSessionActive(request: Request): Promise<Response> {
+    const { active } = (await request.json()) as { active: boolean };
+    await this.state.storage.put("sessionActive", active);
+    return Response.json({ ok: true });
   }
 }
