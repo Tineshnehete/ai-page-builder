@@ -8,6 +8,14 @@ publish it to Cloudflare Pages — multi-user, minimal by design.
 Full design (architecture, data model, auth, publish flow, streaming):
 [`docs/superpowers/specs/2026-10-22-ai-page-builder-design.md`](docs/superpowers/specs/2026-10-22-ai-page-builder-design.md)
 
+**For reviewers:** this entire project — design, implementation, review,
+and debugging — was built in conversation with Claude (Anthropic). A full
+transcript of that session is in
+[`docs/transcripts/ai-development-session-2026-10-22.txt`](docs/transcripts/ai-development-session-2026-10-22.txt)
+(two real credential values the user pasted mid-conversation while
+debugging a local Cloudflare auth issue have been redacted from that
+copy).
+
 ## Project layout
 
 ```
