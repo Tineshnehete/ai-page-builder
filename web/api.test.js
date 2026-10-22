@@ -84,14 +84,14 @@ describe("api.js", () => {
     );
   });
 
-  it("listProjects gets /api/projects and returns the projects", async () => {
+  it("listProjects gets /api/projects and returns the unwrapped projects array", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ projects: [{ id: "1" }] }),
     });
     const result = await listProjects();
-    expect(result).toEqual({ projects: [{ id: "1" }] });
+    expect(result).toEqual([{ id: "1" }]);
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/projects",
       expect.objectContaining({ credentials: "include" })
@@ -127,14 +127,14 @@ describe("api.js", () => {
     );
   });
 
-  it("getProject gets /api/projects/:id and returns the project", async () => {
+  it("getProject gets /api/projects/:id and returns the unwrapped project", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ project: { id: "42" } }),
     });
     const result = await getProject("42");
-    expect(result).toEqual({ project: { id: "42" } });
+    expect(result).toEqual({ id: "42" });
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/projects/42",
       expect.objectContaining({ credentials: "include" })
@@ -221,5 +221,16 @@ describe("api.js", () => {
       body: null,
     });
     await expect(streamChat("1", "hi", () => {})).rejects.toThrow();
+  });
+
+  it("streamChat surfaces the error body's message on a non-2xx response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "message is required" }),
+    });
+    await expect(streamChat("1", "hi", () => {})).rejects.toThrow(
+      "message is required"
+    );
   });
 });

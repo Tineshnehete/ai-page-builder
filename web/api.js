@@ -1,15 +1,18 @@
 // Thin fetch wrappers for the Worker API. No DOM manipulation here.
 
+async function errorMessageFor(response) {
+  let detail;
+  try {
+    detail = await response.json();
+  } catch {
+    detail = undefined;
+  }
+  return (detail && detail.error) || `Request failed with status ${response.status}`;
+}
+
 async function parseJsonOrThrow(response) {
   if (!response.ok) {
-    let detail;
-    try {
-      detail = await response.json();
-    } catch {
-      detail = undefined;
-    }
-    const message = (detail && detail.error) || `Request failed with status ${response.status}`;
-    throw new Error(message);
+    throw new Error(await errorMessageFor(response));
   }
   return response.json();
 }
@@ -46,7 +49,8 @@ export async function listProjects() {
   const response = await fetch("/api/projects", {
     credentials: "include",
   });
-  return parseJsonOrThrow(response);
+  const { projects } = await parseJsonOrThrow(response);
+  return projects;
 }
 
 export async function createProject(name) {
@@ -64,7 +68,8 @@ export async function getProject(id) {
   const response = await fetch(`/api/projects/${id}`, {
     credentials: "include",
   });
-  return parseJsonOrThrow(response);
+  const { project } = await parseJsonOrThrow(response);
+  return project;
 }
 
 export async function deleteProject(id) {
@@ -92,7 +97,7 @@ export async function streamChat(projectId, message, onChunk) {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    throw new Error(await errorMessageFor(response));
   }
 
   const reader = response.body.getReader();
