@@ -46,8 +46,11 @@ The frontend is served by the Worker itself; `wrangler deploy` from
 own UI. `web/.assetsignore` keeps `node_modules`, package files and tests
 out of the uploaded assets.
 
-Note: Workers AI always runs against your Cloudflare account, even under
-`wrangler dev`, so chat needs a logged-in wrangler and incurs usage.
+Note: Workers AI isn't available under plain `wrangler dev` — chat needs
+`wrangler dev --remote` (and a logged-in wrangler), since it runs against
+your real Cloudflare account and incurs usage either way. Durable Object
+storage is separate between the two modes, so a project created under
+plain `wrangler dev` won't exist once you switch to `--remote`.
 
 ## Tests
 
@@ -68,3 +71,22 @@ Verified only against mocked Cloudflare APIs: the Pages direct-upload
 deploy flow and the Workers AI streaming response format follow
 Cloudflare's documented behavior but have not yet been exercised against
 a live account. See the design doc for deliberate non-goals.
+
+## Limitations
+
+Current gaps, not permanent design decisions — reasonable things to add
+in a later iteration:
+
+- **No collaboration.** Each project has exactly one owner; there's no
+  sharing a project between multiple accounts, and no concept of
+  simultaneous editors.
+- **No manual code editing.** The only way to change a page is through
+  chat with the AI — there's no direct HTML/CSS editor for hand-tweaking
+  the generated output.
+- **Single page only.** Each project is one HTML page; there's no
+  multi-page sites (e.g. separate Home/About/Contact pages linked
+  together).
+- **Best suited to small pages.** The chat-driven, full-document
+  regeneration approach works well for small pages — a landing page, a
+  simple business/intro info page — but gets slower and less reliable
+  as a page grows larger or more complex.
