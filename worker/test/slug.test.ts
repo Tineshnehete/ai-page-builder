@@ -27,4 +27,25 @@ describe("slug generation", () => {
     // When both username and project name slugify to empty with attempt, no leading/trailing/double hyphens
     expect(buildPagesProjectName("!!!", "!!!", 2)).toBe("2");
   });
+
+  it("buildPagesProjectName caps long names within Cloudflare's 58-char limit, suffix included", () => {
+    const longUser = "averyveryverylongusername";
+    const longProject = "My Extremely Long Project Name That Keeps Going And Going";
+    const base = buildPagesProjectName(longUser, longProject, 0);
+    expect(base.length).toBeLessThanOrEqual(50);
+    expect(base.startsWith("averyveryverylongusername-my-extremely-long")).toBe(true);
+    expect(base).not.toMatch(/-$/);
+
+    const suffixed = buildPagesProjectName(longUser, longProject, 12);
+    expect(suffixed.length).toBeLessThanOrEqual(58);
+    expect(suffixed).toBe(`${base}-12`);
+  });
+
+  it("buildPagesProjectName trims a hyphen left at the truncation point", () => {
+    // 49 chars of username + "-" lands the hyphen exactly at position 50.
+    const user = "a".repeat(49);
+    const name = buildPagesProjectName(user, "site", 0);
+    expect(name).toBe(user);
+    expect(buildPagesProjectName(user, "site", 3)).toBe(`${user}-3`);
+  });
 });

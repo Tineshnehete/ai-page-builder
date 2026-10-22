@@ -10,22 +10,34 @@ export function slugify(input: string): string {
 }
 
 /**
+ * Maximum length of the username+project part of a Pages project name.
+ * Cloudflare caps Pages project names at 58 characters; this leaves room
+ * for a "-N" collision suffix.
+ */
+export const MAX_BASE_SLUG_LENGTH = 50;
+
+function normalizeHyphens(input: string): string {
+  // Collapse consecutive hyphens BEFORE trimming, so multiple leading/trailing hyphens are handled
+  return input.replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+
+/**
  * Builds a Cloudflare Pages project name from a username, project name, and attempt number.
  * If attempt is 0, returns "username-slugified-project-name".
  * If attempt > 0, returns "username-slugified-project-name-attempt".
- * The result is normalized to remove leading/trailing hyphens and collapse consecutive hyphens.
+ * The username+project part is truncated to MAX_BASE_SLUG_LENGTH characters
+ * (with any trailing hyphen trimmed) before the suffix is added, and the
+ * result is normalized to remove leading/trailing hyphens and collapse
+ * consecutive hyphens.
  */
 export function buildPagesProjectName(
   username: string,
   projectName: string,
   attempt: number
 ): string {
-  const projectSlug = slugify(projectName);
-  const baseSlug = slugify(username) + "-" + projectSlug;
+  const baseSlug = normalizeHyphens(slugify(username) + "-" + slugify(projectName))
+    .slice(0, MAX_BASE_SLUG_LENGTH)
+    .replace(/-+$/, "");
   const result = attempt > 0 ? baseSlug + "-" + attempt : baseSlug;
-  // Normalize the result to handle edge cases where slugified inputs are empty
-  // Collapse consecutive hyphens BEFORE trimming, so multiple leading/trailing hyphens are handled
-  return result
-    .replace(/-+/g, "-") // Collapse consecutive hyphens first
-    .replace(/^-|-$/g, ""); // Then trim leading/trailing hyphens
+  return normalizeHyphens(result);
 }
