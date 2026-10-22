@@ -58,4 +58,26 @@ describe("register and login routes", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  it("returns 400 (not 500) for missing, empty, or non-string credentials", async () => {
+    const badBodies = [
+      "not json",
+      JSON.stringify(null),
+      JSON.stringify({}),
+      JSON.stringify({ username: "fay" }),
+      JSON.stringify({ password: "pw123456" }),
+      JSON.stringify({ username: "", password: "pw123456" }),
+      JSON.stringify({ username: "   ", password: "pw123456" }),
+      JSON.stringify({ username: "fay", password: "" }),
+      JSON.stringify({ username: 42, password: "pw123456" }),
+      JSON.stringify({ username: "fay", password: ["x"] }),
+    ];
+    for (const route of ["register", "login"]) {
+      for (const body of badBodies) {
+        const res = await SELF.fetch(`https://example.com/api/${route}`, { method: "POST", body });
+        expect(res.status, `${route} ${body}`).toBe(400);
+        expect(((await res.json()) as { error: string }).error).toBe("invalid_input");
+      }
+    }
+  });
 });

@@ -387,11 +387,37 @@ async function handleChatProject(
   });
 }
 
+/**
+ * Parses `{ username, password }` from a request body, requiring both to be
+ * non-empty strings. Returns a 400 Response on malformed input.
+ */
+async function readCredentials(
+  request: Request
+): Promise<{ username: string; password: string } | Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "invalid_input" }, { status: 400 });
+  }
+  const { username, password } = (body ?? {}) as { username?: unknown; password?: unknown };
+  if (
+    typeof username !== "string" ||
+    typeof password !== "string" ||
+    username.trim() === "" ||
+    password === ""
+  ) {
+    return Response.json({ error: "invalid_input" }, { status: 400 });
+  }
+  return { username, password };
+}
+
 async function handleRegister(request: Request, env: Env): Promise<Response> {
-  const { username, password } = (await request.json()) as {
-    username: string;
-    password: string;
-  };
+  const credentials = await readCredentials(request);
+  if (credentials instanceof Response) {
+    return credentials;
+  }
+  const { username, password } = credentials;
 
   const { hash, salt } = await hashPassword(password);
 
@@ -413,10 +439,11 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleLogin(request: Request, env: Env): Promise<Response> {
-  const { username, password } = (await request.json()) as {
-    username: string;
-    password: string;
-  };
+  const credentials = await readCredentials(request);
+  if (credentials instanceof Response) {
+    return credentials;
+  }
+  const { username, password } = credentials;
 
   const id = env.USER_DO.idFromName(username);
   const stub = env.USER_DO.get(id);
