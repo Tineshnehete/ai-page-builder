@@ -1,0 +1,7 @@
+# Files in web/ that must NOT be published as public static assets when the
+# Worker serves this directory (see worker/wrangler.toml [assets]).
+node_modules
+package.json
+package-lock.json
+vitest.config.js
+*.test.js

@@ -9,42 +9,62 @@ Full design (architecture, data model, auth, publish flow, streaming):
 ## Project layout
 
 ```
-worker/   Cloudflare Worker — API (auth, chat/generate, publish, delete)
-          + the UserDO Durable Object (per-user data)
-web/      Static frontend, deployed to Cloudflare Pages
+worker/   Cloudflare Worker — API (auth, chat/generate, publish, delete),
+          the UserDO Durable Object (per-user data), and static serving
+          of the frontend in web/ (via wrangler.toml [assets])
+web/      Static frontend (plain JS, no build step), served by the Worker
 docs/     Design docs
 ```
 
 ## Stack
 
-- **Cloudflare Workers** — API backend
+- **Cloudflare Workers** — API backend, and serves the app's own UI as
+  static assets from the same origin (no CORS, session cookie just works)
 - **Durable Objects** — one `UserDO` per user, storing that user's
   projects (HTML, chat history, publish state)
 - **Workers AI** — chat-driven HTML generation, streamed to the client
-- **Cloudflare Pages** — hosts the static frontend, and each user
-  project gets its own Pages project on publish
+- **Cloudflare Pages** — each *user project* gets its own Pages project
+  (and stable `*.pages.dev` URL) on publish, via the Pages API
 
-## Setup (not yet run)
+## Setup
 
 ```sh
 cd worker
 npm install
-npx wrangler dev          # local dev
-npx wrangler deploy       # deploy the Worker
 
 # secrets (not committed):
 npx wrangler secret put SESSION_SECRET
-npx wrangler secret put CF_API_TOKEN
+npx wrangler secret put CF_API_TOKEN     # token with Pages edit permission
 npx wrangler secret put CF_ACCOUNT_ID
+
+npx wrangler dev          # local dev: UI + API on one origin
+npx wrangler deploy       # deploys the Worker, UI assets included
 ```
 
+The frontend is served by the Worker itself; `wrangler deploy` from
+`worker/` deploys both. There is no separate Pages deploy for the app's
+own UI. `web/.assetsignore` keeps `node_modules`, package files and tests
+out of the uploaded assets.
+
+Note: Workers AI always runs against your Cloudflare account, even under
+`wrangler dev`, so chat needs a logged-in wrangler and incurs usage.
+
+## Tests
+
 ```sh
-cd web
-npx wrangler pages deploy . --project-name=ai-page-builder-web
+cd worker && npm install && npx vitest run   # Worker + Durable Object tests
+cd web && npm install && npx vitest run      # frontend api/preview tests
 ```
 
 ## Status
 
-Scaffold only — routes, auth, chat/generate, publish, and the actual
-editor UI are not yet implemented. See the design doc's "What's Left
-to the Builder" section.
+Implemented: register/login/logout (signed stateless session cookie),
+project list/create/get/delete, streaming chat-driven HTML generation
+with Workers AI, sandboxed live preview, publish to a per-project
+Cloudflare Pages project with a basic abuse filter, and the
+auth/projects/editor UI.
+
+Verified only against mocked Cloudflare APIs: the Pages direct-upload
+deploy flow and the Workers AI streaming response format follow
+Cloudflare's documented behavior but have not yet been exercised against
+a live account. See the design doc for deliberate non-goals.

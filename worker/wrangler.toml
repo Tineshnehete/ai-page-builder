@@ -2,6 +2,17 @@ name = "ai-page-builder-worker"
 main = "src/index.ts"
 compatibility_date = "2026-10-22"
 
+# The app's own frontend (login/projects/editor UI in ../web) is served by
+# this Worker as static assets, so UI and API share one origin: relative
+# /api/* fetches hit this Worker and the SameSite=Lax session cookie just
+# works, with no CORS. Requests that match a file in ../web are served
+# directly; everything else (all /api/* routes) falls through to src/index.ts.
+# web/.assetsignore keeps node_modules, package files and tests out of the
+# upload. (Unrelated to per-user project publishing, which still creates a
+# separate Cloudflare Pages project per user project via the Pages API.)
+[assets]
+directory = "../web"
+
 # Workers AI binding, used for chat-driven HTML generation.
 [ai]
 binding = "AI"

@@ -94,10 +94,10 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Client
-        UI[Browser SPA - Cloudflare Pages static assets]
+        UI[Browser SPA - static assets served by the Worker]
     end
 
-    subgraph EdgeWorker [Cloudflare Worker - API]
+    subgraph EdgeWorker [Cloudflare Worker - UI assets + API]
         Auth[Auth endpoints]
         Chat[Chat/generate endpoint]
         Publish[Publish endpoint]
@@ -121,6 +121,15 @@ flowchart LR
     Publish --> CFPages
     CFPages -. returns deployment URL .-> Publish
 ```
+
+**The app's own UI is served by the Worker itself** (Wrangler's
+`[assets]` static-assets binding, pointing at `web/`), not deployed as
+a separate Cloudflare Pages project. UI and API share one origin, so
+the `SameSite=Lax` session cookie works with no CORS, and the whole app
+ships with a single `wrangler deploy`. This only concerns hosting the
+builder's login/projects/editor UI; publishing *user* projects still
+creates one Cloudflare Pages project per user project via the Pages API,
+as described in Publish Flow. **Ruled during final review.**
 
 **Why one Durable Object per user:** keeps the data model trivial for
 a small side project — no need for a separate DO per project or a
@@ -233,9 +242,10 @@ sequenceDiagram
     alt first publish for this project
         W->>CF: create Pages project (name derived from user+project)
         CF-->>W: project created, default subdomain
+        W->>DO: store pagesProjectName + stable https://subdomain URL (before deploying, so a failed deploy is retried without re-creating)
     end
     W->>CF: direct-upload deployment with index.html = project.html
-    CF-->>W: deployment URL
+    CF-->>W: deployment URL (per-deployment; not stored)
     W->>DO: store pagesProjectName + publishedUrl + everPublished=true
     W-->>U: publishedUrl
 ```
