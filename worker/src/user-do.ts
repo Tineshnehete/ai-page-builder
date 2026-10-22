@@ -54,11 +54,15 @@ export class UserDO {
       }
     }
 
-    // Handle GET /internal/projects/:id
+    // Handle GET/PUT /internal/projects/:id
     const projectIdMatch = url.pathname.match(/^\/internal\/projects\/(.+)$/);
     if (projectIdMatch && request.method === "GET") {
       const projectId = projectIdMatch[1];
       return this.handleGetProject(projectId);
+    }
+    if (projectIdMatch && request.method === "PUT") {
+      const projectId = projectIdMatch[1];
+      return this.handleUpdateProject(projectId, request);
     }
 
     return new Response("Not found", { status: 404 });
@@ -155,6 +159,31 @@ export class UserDO {
     if (!project) {
       return new Response("Not found", { status: 404 });
     }
+
+    return Response.json({ project });
+  }
+
+  /**
+   * Merges the given fields (e.g. pagesProjectName, publishedUrl,
+   * everPublished) into the stored project.
+   */
+  private async handleUpdateProject(
+    projectId: string,
+    request: Request
+  ): Promise<Response> {
+    const record = await this.state.storage.get<UserRecord>("user");
+    if (!record) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const project = record.projects.find((p) => p.id === projectId);
+    if (!project) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const updates = (await request.json()) as Partial<Project>;
+    Object.assign(project, updates);
+    await this.state.storage.put("user", record);
 
     return Response.json({ project });
   }

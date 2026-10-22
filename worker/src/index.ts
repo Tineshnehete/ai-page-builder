@@ -3,7 +3,10 @@
 // the full design (auth, chat/generate, publish, delete).
 
 import { hashPassword, verifyPassword, signSession, verifySession } from "./auth";
-import { UserRecord } from "./user-do";
+import { UserRecord, Project } from "./user-do";
+import { checkHtmlForAbuse } from "./abuse-filter";
+import { createPagesProject, deployPagesProject } from "./cf-pages";
+import { buildPagesProjectName } from "./slug";
 
 export { UserDO } from "./user-do";
 
@@ -53,6 +56,16 @@ export default {
       return handleCreateProject(request, session, env);
     }
 
+    // Handle POST /api/projects/:id/publish
+    const publishMatch = url.pathname.match(/^\/api\/projects\/(.+)\/publish$/);
+    if (publishMatch && request.method === "POST") {
+      const session = await requireSession(request, env);
+      if (session instanceof Response) {
+        return session;
+      }
+      return handlePublishProject(publishMatch[1], session, env);
+    }
+
     // Handle GET /api/projects/:id
     const projectIdMatch = url.pathname.match(/^\/api\/projects\/(.+)$/);
     if (projectIdMatch && request.method === "GET") {
@@ -64,7 +77,7 @@ export default {
       return handleGetProject(projectId, session, env);
     }
 
-    // Chat/generate, publish, and delete routes are left to the builder
+    // Chat/generate and delete routes are left to the builder
     // (see design doc "What's Left to the Builder").
     return new Response("Not found", { status: 404 });
   },
@@ -149,6 +162,72 @@ async function handleGetProject(
   const res = await stub.fetch(`https://do/internal/projects/${projectId}`);
   const body = await res.json();
   return Response.json(body, { status: res.status });
+}
+
+const MAX_CREATE_ATTEMPTS = 5;
+
+async function handlePublishProject(
+  projectId: string,
+  session: { username: string },
+  env: Env
+): Promise<Response> {
+  const id = env.USER_DO.idFromName(session.username);
+  const stub = env.USER_DO.get(id);
+
+  const getRes = await stub.fetch(`https://do/internal/projects/${projectId}`);
+  if (getRes.status !== 200) {
+    return new Response("Not found", { status: 404 });
+  }
+  const { project } = (await getRes.json()) as { project: Project };
+
+  // The abuse check runs on every publish, before any Cloudflare API call.
+  const abuseResult = checkHtmlForAbuse(project.html);
+  if (abuseResult.blocked) {
+    return Response.json(
+      { error: "abuse_check_failed", reason: abuseResult.reason },
+      { status: 400 }
+    );
+  }
+
+  let pagesProjectName = project.pagesProjectName;
+
+  try {
+    // Only the first publish needs to create the Pages project.
+    if (!pagesProjectName) {
+      for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
+        const candidateName = buildPagesProjectName(session.username, project.name, attempt);
+        const result = await createPagesProject(env.CF_ACCOUNT_ID, env.CF_API_TOKEN, candidateName);
+        if (result.created) {
+          pagesProjectName = candidateName;
+          break;
+        }
+        // result.alreadyExists: try the next attempt's name.
+      }
+      if (!pagesProjectName) {
+        return Response.json({ error: "cf_api_error" }, { status: 502 });
+      }
+    }
+
+    const deployResult = await deployPagesProject(
+      env.CF_ACCOUNT_ID,
+      env.CF_API_TOKEN,
+      pagesProjectName,
+      project.html
+    );
+
+    await stub.fetch(`https://do/internal/projects/${projectId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        pagesProjectName,
+        publishedUrl: deployResult.url,
+        everPublished: true,
+      }),
+    });
+
+    return Response.json({ publishedUrl: deployResult.url }, { status: 200 });
+  } catch {
+    return Response.json({ error: "cf_api_error" }, { status: 502 });
+  }
 }
 
 async function handleRegister(request: Request, env: Env): Promise<Response> {

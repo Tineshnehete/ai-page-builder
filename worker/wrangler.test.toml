@@ -8,6 +8,8 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 SESSION_SECRET = "test-secret"
+CF_API_TOKEN = "test-token"
+CF_ACCOUNT_ID = "test-account"
 
 # One Durable Object per user, storing that user's profile + projects.
 [[durable_objects.bindings]]
