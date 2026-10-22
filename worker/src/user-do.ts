@@ -64,6 +64,10 @@ export class UserDO {
       const projectId = projectIdMatch[1];
       return this.handleUpdateProject(projectId, request);
     }
+    if (projectIdMatch && request.method === "DELETE") {
+      const projectId = projectIdMatch[1];
+      return this.handleDeleteProject(projectId);
+    }
 
     return new Response("Not found", { status: 404 });
   }
@@ -186,5 +190,22 @@ export class UserDO {
     await this.state.storage.put("user", record);
 
     return Response.json({ project });
+  }
+
+  private async handleDeleteProject(projectId: string): Promise<Response> {
+    const record = await this.state.storage.get<UserRecord>("user");
+    if (!record) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const index = record.projects.findIndex((p) => p.id === projectId);
+    if (index === -1) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    record.projects.splice(index, 1);
+    await this.state.storage.put("user", record);
+
+    return Response.json({ ok: true });
   }
 }

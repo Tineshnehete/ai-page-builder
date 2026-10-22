@@ -5,7 +5,7 @@
 import { hashPassword, verifyPassword, signSession, verifySession } from "./auth";
 import { UserRecord, Project } from "./user-do";
 import { checkHtmlForAbuse } from "./abuse-filter";
-import { createPagesProject, deployPagesProject } from "./cf-pages";
+import { createPagesProject, deployPagesProject, deletePagesProject } from "./cf-pages";
 import { buildPagesProjectName } from "./slug";
 
 export { UserDO } from "./user-do";
@@ -77,7 +77,17 @@ export default {
       return handleGetProject(projectId, session, env);
     }
 
-    // Chat/generate and delete routes are left to the builder
+    // Handle DELETE /api/projects/:id
+    if (projectIdMatch && request.method === "DELETE") {
+      const session = await requireSession(request, env);
+      if (session instanceof Response) {
+        return session;
+      }
+      const projectId = projectIdMatch[1];
+      return handleDeleteProject(projectId, session, env);
+    }
+
+    // Chat/generate routes are left to the builder
     // (see design doc "What's Left to the Builder").
     return new Response("Not found", { status: 404 });
   },
@@ -160,8 +170,43 @@ async function handleGetProject(
   const id = env.USER_DO.idFromName(session.username);
   const stub = env.USER_DO.get(id);
   const res = await stub.fetch(`https://do/internal/projects/${projectId}`);
+  if (res.status !== 200) {
+    return new Response("Not found", { status: res.status });
+  }
   const body = await res.json();
   return Response.json(body, { status: res.status });
+}
+
+async function handleDeleteProject(
+  projectId: string,
+  session: { username: string },
+  env: Env
+): Promise<Response> {
+  const id = env.USER_DO.idFromName(session.username);
+  const stub = env.USER_DO.get(id);
+
+  const getRes = await stub.fetch(`https://do/internal/projects/${projectId}`);
+  if (getRes.status !== 200) {
+    return new Response("Not found", { status: 404 });
+  }
+  const { project } = (await getRes.json()) as { project: Project };
+
+  if (project.everPublished && project.pagesProjectName) {
+    const result = await deletePagesProject(
+      env.CF_ACCOUNT_ID,
+      env.CF_API_TOKEN,
+      project.pagesProjectName
+    );
+    if (!result.ok) {
+      return Response.json({ error: "cf_delete_failed" }, { status: 502 });
+    }
+  }
+
+  const deleteRes = await stub.fetch(`https://do/internal/projects/${projectId}`, {
+    method: "DELETE",
+  });
+  const body = await deleteRes.json();
+  return Response.json(body, { status: deleteRes.status });
 }
 
 const MAX_CREATE_ATTEMPTS = 5;
