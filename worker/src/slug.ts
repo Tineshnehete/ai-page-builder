@@ -24,7 +24,8 @@ export function buildPagesProjectName(
   const baseSlug = slugify(username) + "-" + projectSlug;
   const result = attempt > 0 ? baseSlug + "-" + attempt : baseSlug;
   // Normalize the result to handle edge cases where slugified inputs are empty
+  // Collapse consecutive hyphens BEFORE trimming, so multiple leading/trailing hyphens are handled
   return result
-    .replace(/^-|-$/g, "") // Trim leading/trailing hyphens
-    .replace(/-+/g, "-"); // Collapse consecutive hyphens
+    .replace(/-+/g, "-") // Collapse consecutive hyphens first
+    .replace(/^-|-$/g, ""); // Then trim leading/trailing hyphens
 }

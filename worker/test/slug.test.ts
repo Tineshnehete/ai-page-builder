@@ -23,5 +23,8 @@ describe("slug generation", () => {
 
     // When project name slugifies to empty with attempt, should collapse hyphens
     expect(buildPagesProjectName("alice", "!!!", 2)).toBe("alice-2");
+
+    // When both username and project name slugify to empty with attempt, no leading/trailing/double hyphens
+    expect(buildPagesProjectName("!!!", "!!!", 2)).toBe("2");
   });
 });
