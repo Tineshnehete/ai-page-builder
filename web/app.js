@@ -13,6 +13,7 @@ import {
   deleteProject,
   publishProject,
   streamChat,
+  isUnauthorized,
 } from "./api.js";
 import { renderPreview } from "./preview.js";
 
@@ -49,14 +50,24 @@ function mount(node) {
   app.appendChild(node);
 }
 
+// Shared handling for a missing/expired session anywhere in the app: any
+// API call that comes back 401 sends the user back to the login screen
+// instead of leaving them on a dead-end "unauthorized" error. Returns true
+// if it handled the error, so callers can skip their own error display.
+function handleSessionExpired(err) {
+  if (!isUnauthorized(err)) return false;
+  renderAuthView("Your session has expired. Please log in again.");
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Auth view
 // ---------------------------------------------------------------------------
 
-function renderAuthView() {
+function renderAuthView(notice = "") {
   let mode = "login"; // "login" | "register"
 
-  const errorEl = el("p", { className: "error", role: "alert" });
+  const errorEl = el("p", { className: "error", role: "alert" }, notice ? [notice] : []);
 
   const usernameInput = el("input", {
     type: "text",
@@ -151,6 +162,7 @@ async function showProjectsView() {
     const projects = await listProjects();
     renderProjectsView(projects);
   } catch (err) {
+    if (handleSessionExpired(err)) return;
     mount(
       el("div", { className: "view view-projects" }, [
         el("p", { className: "error", role: "alert" }, [
@@ -210,6 +222,7 @@ function renderProjectsView(projects) {
       const project = await createProject(name);
       await openEditor(project.id);
     } catch (err) {
+      if (handleSessionExpired(err)) return;
       createErrorEl.textContent = err.message || "Could not create project.";
       confirmBtn.disabled = false;
     }
@@ -277,6 +290,7 @@ function renderProjectCard(project) {
           await deleteProject(project.id);
           card.remove();
         } catch (err) {
+          if (handleSessionExpired(err)) return;
           cardError.textContent = err.message || "Could not delete project.";
           deleteBtn.disabled = false;
         }
@@ -312,6 +326,7 @@ async function openEditor(projectId) {
     const project = await getProject(projectId);
     renderEditorView(project);
   } catch (err) {
+    if (handleSessionExpired(err)) return;
     mount(
       el("div", { className: "view view-editor" }, [
         el("p", { className: "error", role: "alert" }, [err.message || "Could not load project."]),
@@ -359,6 +374,7 @@ function renderEditorView(initialProject) {
           project.publishedUrl = result.publishedUrl;
           renderPublishedUrl();
         } catch (err) {
+          if (handleSessionExpired(err)) return;
           publishErrorEl.textContent = err.message || "Publish failed.";
         } finally {
           publishBtn.disabled = false;
@@ -443,7 +459,15 @@ function renderEditorView(initialProject) {
           project = await getProject(project.id);
           renderPreview(previewIframe, project.html);
         } catch (err) {
-          chatErrorEl.textContent = err.message || "Chat failed. Please try again.";
+          if (handleSessionExpired(err)) return;
+          // An error with an HTTP status was a rejected request; one without
+          // came from the response stream itself breaking, which the Worker
+          // does when the AI produced no usable HTML or the result couldn't
+          // be saved -- in both cases the page's previous HTML is kept.
+          chatErrorEl.textContent =
+            err && err.status
+              ? err.message || "Chat failed. Please try again."
+              : "That change couldn't be applied, so your page was left as it was. Please try again.";
         } finally {
           chatInput.disabled = false;
           sendBtn.disabled = false;
@@ -475,4 +499,16 @@ function renderEditorView(initialProject) {
 // Entry point
 // ---------------------------------------------------------------------------
 
-renderAuthView();
+// The session cookie is HttpOnly, so the page can't inspect it directly:
+// probe the API instead. A successful project list means the existing
+// session is valid, so skip the login screen.
+async function boot() {
+  try {
+    const projects = await listProjects();
+    renderProjectsView(projects);
+  } catch {
+    renderAuthView();
+  }
+}
+
+boot();

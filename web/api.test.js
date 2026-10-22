@@ -9,11 +9,48 @@ import {
   deleteProject,
   publishProject,
   streamChat,
+  isUnauthorized,
 } from "./api.js";
 
 describe("api.js", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn();
+  });
+
+  it("errors carry the HTTP status so a 401 can be recognized as an expired session", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "unauthorized" }),
+    });
+    const err = await listProjects().catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(401);
+    expect(err.message).toBe("unauthorized");
+    expect(isUnauthorized(err)).toBe(true);
+  });
+
+  it("isUnauthorized is false for other failures", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "boom" }),
+    });
+    const err = await getProject("1").catch((e) => e);
+    expect(err.status).toBe(500);
+    expect(isUnauthorized(err)).toBe(false);
+    expect(isUnauthorized(new Error("network error"))).toBe(false);
+    expect(isUnauthorized(undefined)).toBe(false);
+  });
+
+  it("streamChat errors carry the HTTP status too", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "unauthorized" }),
+    });
+    const err = await streamChat("1", "hi", () => {}).catch((e) => e);
+    expect(isUnauthorized(err)).toBe(true);
   });
 
   it("register posts username/password and returns the parsed body", async () => {

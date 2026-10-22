@@ -10,9 +10,21 @@ async function errorMessageFor(response) {
   return (detail && detail.error) || `Request failed with status ${response.status}`;
 }
 
+// Errors thrown for non-2xx responses carry the HTTP `status`, so callers
+// can tell an expired/missing session (401) apart from other failures.
+async function httpError(response) {
+  const error = new Error(await errorMessageFor(response));
+  error.status = response.status;
+  return error;
+}
+
+export function isUnauthorized(err) {
+  return Boolean(err) && err.status === 401;
+}
+
 async function parseJsonOrThrow(response) {
   if (!response.ok) {
-    throw new Error(await errorMessageFor(response));
+    throw await httpError(response);
   }
   return response.json();
 }
@@ -97,7 +109,7 @@ export async function streamChat(projectId, message, onChunk) {
   });
 
   if (!response.ok) {
-    throw new Error(await errorMessageFor(response));
+    throw await httpError(response);
   }
 
   const reader = response.body.getReader();
