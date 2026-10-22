@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import {
   buildPrompt,
   extractHtml,
+  extractSummary,
+  SUMMARY_FALLBACK,
   streamGeneration,
   MODEL_ID,
   MAX_OUTPUT_TOKENS,
@@ -92,6 +94,32 @@ describe("AI generation module", () => {
     it("returns null when no HTML is found at all", () => {
       expect(extractHtml("I'm sorry, I can't help with that request.")).toBeNull();
       expect(extractHtml("")).toBeNull();
+    });
+  });
+
+  describe("extractSummary", () => {
+    it("extracts the SUMMARY line, trimmed", () => {
+      const output = "SUMMARY: Made the button blue.\n```html\n<html></html>\n```";
+      expect(extractSummary(output)).toBe("Made the button blue.");
+    });
+
+    it("is case-insensitive on the SUMMARY label", () => {
+      expect(extractSummary("summary:   added a footer  \n```html\n<html></html>\n```")).toBe(
+        "added a footer"
+      );
+    });
+
+    it("finds the SUMMARY line even if it's not the first line", () => {
+      const output = "Sure!\nSUMMARY: Added a footer.\n```html\n<html></html>\n```";
+      expect(extractSummary(output)).toBe("Added a footer.");
+    });
+
+    it("falls back to a generic message when there's no SUMMARY line", () => {
+      expect(extractSummary("```html\n<html></html>\n```")).toBe(SUMMARY_FALLBACK);
+    });
+
+    it("falls back when the SUMMARY line is present but empty", () => {
+      expect(extractSummary("SUMMARY:   \n```html\n<html></html>\n```")).toBe(SUMMARY_FALLBACK);
     });
   });
 

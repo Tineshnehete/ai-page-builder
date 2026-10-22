@@ -94,7 +94,12 @@ describe("chat endpoint", () => {
     const project = await createProject(cookie, "Draft");
     const run = vi
       .fn()
-      .mockImplementation(async () => sseStream(["<html><body>", "new</body></html>"]));
+      .mockImplementation(async () =>
+        sseStream([
+          "SUMMARY: Made it say new.\n```html\n<html><body>",
+          "new</body></html>\n```",
+        ])
+      );
     const ctx = createExecutionContext();
     const res = await worker.fetch(
       chatRequest(project.id, cookie, "make it say new"),
@@ -102,7 +107,9 @@ describe("chat endpoint", () => {
       ctx
     );
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("<html><body>new</body></html>");
+    expect(await res.text()).toBe(
+      "SUMMARY: Made it say new.\n```html\n<html><body>new</body></html>\n```"
+    );
 
     // No waitOnExecutionContext here on purpose: persistence must already
     // have landed by the time the response stream has ended.
@@ -110,9 +117,11 @@ describe("chat endpoint", () => {
     expect(stored.html).toBe("<html><body>new</body></html>");
     expect(stored.chatHistory).toHaveLength(2);
     expect(stored.chatHistory[0]).toMatchObject({ role: "user", content: "make it say new" });
+    // The chat message shows the model's short human-readable summary, not
+    // the raw HTML/fence markup — that only ever renders in the preview.
     expect(stored.chatHistory[1]).toMatchObject({
       role: "assistant",
-      content: "<html><body>new</body></html>",
+      content: "Made it say new.",
     });
 
     expect(run).toHaveBeenCalledTimes(1);

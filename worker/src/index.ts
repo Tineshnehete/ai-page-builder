@@ -12,7 +12,7 @@ import {
   stablePagesUrl,
 } from "./cf-pages";
 import { buildPagesProjectName } from "./slug";
-import { buildPrompt, extractHtml, streamGeneration, AiBinding } from "./generate";
+import { buildPrompt, extractHtml, extractSummary, streamGeneration, AiBinding } from "./generate";
 
 export { UserDO } from "./user-do";
 
@@ -359,9 +359,13 @@ async function handleChatProject(
       const userMessage: ChatMessage = { role: "user", content: userText, timestamp: now };
       const assistantMessage: ChatMessage = {
         role: "assistant",
-        // On extraction failure, record what the model actually said so the
-        // turn is visible in history; the page's HTML is left untouched.
-        content: html ?? fullText,
+        // On success, the chat history shows the model's short human-readable
+        // summary (per its prompt contract), not the raw HTML/fence markup —
+        // the HTML itself only ever renders in the preview iframe. On
+        // extraction failure, record what the model actually said instead,
+        // so the turn is still visible in history; the page's HTML is left
+        // untouched either way.
+        content: html !== null ? extractSummary(fullText) : fullText,
         timestamp: now,
       };
       const chatHistory = [...project.chatHistory, userMessage, assistantMessage];

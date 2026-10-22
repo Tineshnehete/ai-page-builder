@@ -18,6 +18,22 @@ export default defineConfig({
         wrangler: {
           configPath: "./wrangler.test.toml",
         },
+        // Miniflare auto-loads a local .dev.vars file (used for `wrangler
+        // dev`) regardless of which wrangler config is pointed at, and
+        // merges it inconsistently across this pool's two invocation styles
+        // (SELF.fetch's internal worker instance vs. a manually-constructed
+        // env passed to the exported `fetch` handler directly) -- a
+        // developer's real `.dev.vars` would then silently desync the
+        // SESSION_SECRET used to sign vs. verify session cookies across
+        // those two paths. Force the test values here so they're immune to
+        // whatever a developer has in their local .dev.vars.
+        miniflare: {
+          bindings: {
+            SESSION_SECRET: "test-secret",
+            CF_API_TOKEN: "test-token",
+            CF_ACCOUNT_ID: "test-account",
+          },
+        },
       },
     },
   },

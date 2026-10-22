@@ -41,7 +41,14 @@ ${currentHtml}
 The user has requested the following change:
 ${message}
 
-Apply the requested change to the HTML above. Respond with ONLY the full, complete, raw HTML document for the updated page. Do not include any explanation, commentary, or markdown code fences — your entire response must be valid HTML starting with <!DOCTYPE html> or <html> and nothing else.`;
+Apply the requested change to the HTML above. Respond in EXACTLY this format and nothing else:
+
+SUMMARY: <one short, friendly sentence in plain English describing what you changed>
+\`\`\`html
+<the full, complete, updated HTML document, starting with <!DOCTYPE html> or <html>>
+\`\`\`
+
+The SUMMARY line must come first. Do not include any other explanation or commentary outside those two parts.`;
 }
 
 /**
@@ -81,6 +88,24 @@ export function extractHtml(modelOutput: string): string | null {
   }
 
   return null;
+}
+
+/** Shown to the user when the model's output has no usable SUMMARY line. */
+export const SUMMARY_FALLBACK = "Updated your page.";
+
+/**
+ * Pulls the short, human-readable summary line out of a model's output (the
+ * `SUMMARY: ...` line the prompt asks for), for display in the chat UI
+ * instead of the raw HTML/fence markup. Falls back to a generic message if
+ * no such line is found.
+ */
+export function extractSummary(modelOutput: string): string {
+  // `[ \t]` (not `\s`) around the label: `\s` matches newlines too, which
+  // would let a SUMMARY line with only trailing whitespace swallow the
+  // blank line after it and match the next line's content instead.
+  const match = modelOutput.match(/^[ \t]*SUMMARY:[ \t]*(.+)$/im);
+  const line = match?.[1]?.trim();
+  return line ? line : SUMMARY_FALLBACK;
 }
 
 /**
